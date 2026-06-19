@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Object Browser</title>
+    <link rel="stylesheet" href="/src/styles/main.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header class="panel-header">
+        <h1>Objects</h1>
+        <div id="status" class="status" aria-live="polite"></div>
+      </header>
+
+      <section class="toolbar">
+        <label class="field">
+          <span class="field-label">Show</span>
+          <select id="show-filter">
+            <option value="all">All objects</option>
+            <option value="visible">Visible only</option>
+            <option value="hidden">Hidden only</option>
+          </select>
+        </label>
+
+        <div class="field combobox">
+          <span class="field-label">Group by</span>
+          <input
+            id="group-by-input"
+            type="text"
+            autocomplete="off"
+            placeholder="Type to search a property…"
+          />
+          <ul id="group-by-list" class="combobox-list" hidden></ul>
+        </div>
+
+        <label class="field filter-field">
+          <span class="field-label">Filter (all properties)</span>
+          <div class="filter-input-wrap">
+            <input id="filter-input" type="text" placeholder="Filter every property" />
+            <button id="clear-filter" type="button" aria-label="Clear filter" hidden>&times;</button>
+          </div>
+        </label>
+
+        <div class="toolbar-actions">
+          <button id="colorize-groups" type="button">Colorize groups</button>
+          <button id="reset-colors" type="button">Reset colors</button>
+          <div class="columns-control">
+            <button id="columns-button" type="button">Columns ▾</button>
+            <div id="columns-popover" class="columns-popover" hidden></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="table-wrap" class="table-wrap">
+        <table class="object-table" aria-label="Object browser">
+          <thead>
+            <tr id="header-row">
+              <th class="col-controls"></th>
+              <th class="col-name">Object name</th>
+            </tr>
+          </thead>
+          <tbody id="object-rows">
+            <tr class="placeholder-row">
+              <td colspan="3">Connecting to Trimble Connect…</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

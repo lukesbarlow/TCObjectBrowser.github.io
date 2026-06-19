@@ -1,0 +1,400 @@
+:root {
+  color-scheme: light;
+  font-family: "Segoe UI", Tahoma, sans-serif;
+  font-size: 13px;
+  line-height: 1.4;
+  color: #1f2937;
+  background: #ffffff;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+  min-width: 320px;
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px 8px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.panel-header h1 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.status {
+  color: #6b7280;
+  font-size: 12px;
+  text-align: right;
+}
+
+.status.is-error {
+  color: #b91c1c;
+}
+
+.toolbar {
+  display: grid;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid #e5e7eb;
+  background: #f9fafb;
+}
+
+.field {
+  display: grid;
+  gap: 4px;
+  position: relative;
+}
+
+.field-label {
+  color: #6b7280;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.field select,
+.field input {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  background: #ffffff;
+}
+
+.toolbar-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.toolbar-actions button,
+.filter-input-wrap button,
+.columns-control button {
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  background: #ffffff;
+  color: #111827;
+  cursor: pointer;
+  padding: 6px 10px;
+}
+
+.toolbar-actions button:hover,
+.filter-input-wrap button:hover,
+.columns-control button:hover {
+  background: #f3f4f6;
+}
+
+.filter-input-wrap {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px;
+}
+
+/* Group-by combobox */
+.combobox-list {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  margin: 2px 0 0;
+  padding: 4px 0;
+  list-style: none;
+  max-height: 280px;
+  overflow: auto;
+  background: #ffffff;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.15);
+}
+
+.combobox-option {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+
+.combobox-option:hover {
+  background: #eef2ff;
+}
+
+.combobox-option.is-selected {
+  background: #e0e7ff;
+}
+
+.combobox-option-label {
+  font-weight: 500;
+}
+
+.combobox-option-group {
+  color: #9ca3af;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.combobox-empty {
+  padding: 8px 10px;
+  color: #9ca3af;
+}
+
+/* Columns popover */
+.columns-control {
+  position: relative;
+}
+
+.columns-popover {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 20;
+  margin-top: 4px;
+  width: 260px;
+  max-height: 320px;
+  overflow: auto;
+  background: #ffffff;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.15);
+}
+
+.popover-title {
+  padding: 8px 12px;
+  font-weight: 600;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.popover-search {
+  display: block;
+  width: calc(100% - 16px);
+  margin: 8px;
+  padding: 6px 8px;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+}
+
+.popover-list {
+  padding: 6px 0;
+}
+
+.popover-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px;
+  cursor: pointer;
+}
+
+.popover-option:hover {
+  background: #f3f4f6;
+}
+
+.popover-option input {
+  width: auto;
+}
+
+.table-wrap {
+  flex: 1;
+  overflow: auto;
+}
+
+.object-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.object-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #ffffff;
+}
+
+.object-table th,
+.object-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid #e5e7eb;
+  text-align: left;
+  vertical-align: middle;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 280px;
+}
+
+.object-table th {
+  font-size: 12px;
+  font-weight: 600;
+  color: #374151;
+}
+
+.sortable {
+  cursor: pointer;
+  user-select: none;
+}
+
+.sort-indicator {
+  color: #2563eb;
+}
+
+.col-controls {
+  width: 84px;
+  white-space: nowrap;
+}
+
+.col-name {
+  min-width: 180px;
+}
+
+.col-data {
+  color: #4b5563;
+}
+
+.tree-row {
+  cursor: pointer;
+}
+
+.tree-row:hover {
+  background: #f3f4f6;
+}
+
+.group-row {
+  background: #ffffff;
+}
+
+.group-row .col-name {
+  font-weight: 600;
+}
+
+.assembly-row {
+  background: #fbfbfd;
+}
+
+.assembly-row .col-name {
+  font-weight: 500;
+}
+
+.object-row {
+  background: #ffffff;
+}
+
+.tree-row.is-selected {
+  background: #dbeafe;
+}
+
+.tree-row.is-selected:hover {
+  background: #bfdbfe;
+}
+
+.placeholder-row td {
+  padding: 24px 10px;
+  color: #6b7280;
+  text-align: center;
+  white-space: normal;
+}
+
+.virtual-spacer td {
+  padding: 0;
+  border: none;
+}
+
+.icon-button {
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+  font-size: 13px;
+  line-height: 1;
+}
+
+.icon-button:hover {
+  background: #e0e7ff;
+}
+
+.expand-spacer {
+  display: inline-block;
+  width: 22px;
+}
+
+.visibility-button.is-hidden {
+  opacity: 0.4;
+}
+
+.color-swatch {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 1px solid #cbd5e1;
+  border-radius: 2px;
+  vertical-align: middle;
+  pointer-events: none;
+}
+
+.color-swatch-button {
+  position: relative;
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  margin-left: 2px;
+  padding: 0;
+  border: none;
+  border-radius: 2px;
+  background: transparent;
+  cursor: pointer;
+  vertical-align: middle;
+}
+
+.color-swatch-button:hover,
+.color-swatch-button:focus-visible {
+  outline: 2px solid #93c5fd;
+  outline-offset: 1px;
+}
+
+.color-swatch-input {
+  position: absolute;
+  width: 0;
+  height: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.color-swatch.is-mixed {
+  background:
+    linear-gradient(45deg, #2563eb 50%, #059669 50%) top left / 50% 50% no-repeat,
+    linear-gradient(45deg, #6b7280 50%, #dc2626 50%) bottom right / 50% 50% no-repeat;
+}
+
+@media (min-width: 720px) {
+  .toolbar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .toolbar-actions {
+    grid-column: span 2;
+  }
+}

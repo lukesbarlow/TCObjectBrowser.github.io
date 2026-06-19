@@ -1,0 +1,9 @@
+{
+  "title": "Object Browser",
+  "description": "Browse, group, search, and control visibility of model objects — similar to Trimble Connect Desktop.",
+  "url": "http://localhost:5173/index.html",
+  "icon": "http://localhost:5173/icon.svg",
+  "type": "panel",
+  "extensionType": ["3dviewer"],
+  "enabled": false
+}
