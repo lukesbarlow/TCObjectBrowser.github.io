@@ -51,7 +51,7 @@ This extension uses:
 ### 1. Install and run locally
 
 ```bash
-cd trimble-connect-object-browser
+cd TCObjectBrowser.github.io
 npm install
 npm run dev
 ```
@@ -115,7 +115,7 @@ Deploy the contents of `dist/` to static hosting (Azure Static Web Apps, S3, Net
 ## Project layout
 
 ```
-trimble-connect-object-browser/
+TCObjectBrowser.github.io/
   public/manifest.json     # Extension manifest for Trimble Connect
   src/
     api/connect.ts         # Workspace API connection
