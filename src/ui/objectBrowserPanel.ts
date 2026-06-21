@@ -8,6 +8,7 @@ import {
 import {
   BrowserState,
   DEFAULT_BROWSER_STATE,
+  FlatObject,
   NAME_KEY,
   PropertyKeyInfo,
   TreeNode,
@@ -23,12 +24,18 @@ export class ObjectBrowserPanel {
   private readonly service = new ObjectBrowserService();
 
   private readonly expandedIds = new Set<string>();
+  private readonly selectedNodeIds = new Set<string>();
   private readonly selectedObjectKeys = new Set<string>();
+  private selectionAnchorIndex: number | null = null;
+  private pendingPanelSelection = false;
+  private columnDragKey: string | null = null;
+  private columnDragMoved = false;
   private readonly nodeById = new Map<string, TreeNode>();
   private visibleRows: FlatRow[] = [];
   private renderToken = 0;
   private lastHeaderKey = "";
   private filterDebounceId = 0;
+  private propertiesProgressRenderId = 0;
   private columnsSearch = "";
 
   private readonly statusEl = requiredElement<HTMLElement>("status");
@@ -47,7 +54,17 @@ export class ObjectBrowserPanel {
 
   constructor() {
     this.bindControls();
+    this.service.setPropertiesProgressListener(() => this.scheduleProgressRender());
     void this.initialize();
+  }
+
+  private scheduleProgressRender(): void {
+    window.clearTimeout(this.propertiesProgressRenderId);
+    this.propertiesProgressRenderId = window.setTimeout(() => {
+      this.ensureValidGroupBy();
+      this.syncGroupByInput();
+      void this.render();
+    }, 300);
   }
 
   private bindControls(): void {
@@ -146,7 +163,7 @@ export class ObjectBrowserPanel {
       if (row?.dataset.nodeId) {
         const node = this.nodeById.get(row.dataset.nodeId);
         if (node) {
-          void this.service.selectObjects(node.objects);
+          this.handleRowSelect(node, event);
         }
       }
     });
@@ -216,18 +233,28 @@ export class ObjectBrowserPanel {
   }
 
   private async reload(): Promise<void> {
+    this.selectedNodeIds.clear();
+    this.selectedObjectKeys.clear();
+    this.selectionAnchorIndex = null;
+
     this.setStatus("Loading objects…");
     const count = await this.service.refresh();
     this.ensureValidGroupBy();
     this.syncGroupByInput();
+    await this.render();
+    this.setStatus(this.buildStatus(count, this.service.isEnrichingProperties()));
+
+    void this.service.waitForPropertyEnrichment().then(async () => {
+      window.clearTimeout(this.propertiesProgressRenderId);
+      this.ensureValidGroupBy();
+      this.syncGroupByInput();
+      await this.render();
+      this.setStatus(this.buildStatus(count));
+    });
 
     if (this.service.isAssemblySelection()) {
-      this.setStatus("Building assembly index…");
-      await this.service.ensureAssemblyIndex();
+      void this.service.ensureAssemblyIndex().then(() => this.render());
     }
-
-    await this.render();
-    this.setStatus(this.buildStatus(count));
   }
 
   private handleWorkspaceEvent(eventName: string, data: unknown): void {
@@ -269,6 +296,14 @@ export class ObjectBrowserPanel {
 
   private async handleSelectionChanged(data: unknown): Promise<void> {
     const token = ++this.renderToken;
+    const fromPanel = this.pendingPanelSelection;
+    this.pendingPanelSelection = false;
+
+    if (!fromPanel) {
+      this.selectedNodeIds.clear();
+      this.selectionAnchorIndex = null;
+    }
+
     this.selectedObjectKeys.clear();
     const selection = extractSelection(data);
     let firstObjectKey: string | null = null;
@@ -316,12 +351,83 @@ export class ObjectBrowserPanel {
 
   private lastCount = 0;
 
-  private buildStatus(count: number): string {
+  private buildStatus(count: number, enriching = false): string {
     this.lastCount = count;
     const mode = this.service.isAssemblySelection()
       ? "assembly selection"
       : "object selection";
-    return `${count.toLocaleString()} objects · ${mode}`;
+    const suffix = enriching ? " · loading properties…" : "";
+    return `${count.toLocaleString()} objects · ${mode}${suffix}`;
+  }
+
+  private handleRowSelect(node: TreeNode, event: MouseEvent): void {
+    const rowIndex = this.visibleRows.findIndex((row) => row.node.id === node.id);
+    if (rowIndex === -1) {
+      return;
+    }
+
+    const ctrl = event.ctrlKey || event.metaKey;
+    const shift = event.shiftKey;
+
+    if (shift && this.selectionAnchorIndex !== null) {
+      const start = Math.min(this.selectionAnchorIndex, rowIndex);
+      const end = Math.max(this.selectionAnchorIndex, rowIndex);
+      const rangeIds = this.visibleRows.slice(start, end + 1).map((row) => row.node.id);
+
+      if (ctrl) {
+        for (const id of rangeIds) {
+          this.selectedNodeIds.add(id);
+        }
+      } else {
+        this.selectedNodeIds.clear();
+        for (const id of rangeIds) {
+          this.selectedNodeIds.add(id);
+        }
+      }
+    } else if (ctrl) {
+      if (this.selectedNodeIds.has(node.id)) {
+        this.selectedNodeIds.delete(node.id);
+      } else {
+        this.selectedNodeIds.add(node.id);
+      }
+      this.selectionAnchorIndex = rowIndex;
+    } else {
+      this.selectedNodeIds.clear();
+      this.selectedNodeIds.add(node.id);
+      this.selectionAnchorIndex = rowIndex;
+    }
+
+    this.syncSelectionToViewer();
+    this.applySelectionHighlight();
+  }
+
+  private collectSelectedObjects(): FlatObject[] {
+    const seen = new Set<string>();
+    const objects = [];
+
+    for (const nodeId of this.selectedNodeIds) {
+      const node = this.nodeById.get(nodeId);
+      if (!node) {
+        continue;
+      }
+
+      for (const object of node.objects) {
+        const key = `${object.modelId}:${object.id}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          objects.push(object);
+        }
+      }
+    }
+
+    return objects;
+  }
+
+  private syncSelectionToViewer(): void {
+    this.pendingPanelSelection = true;
+    void this.service.selectObjects(this.collectSelectedObjects()).catch(() => {
+      this.pendingPanelSelection = false;
+    });
   }
 
   private async render(): Promise<void> {
@@ -470,6 +576,7 @@ export class ObjectBrowserPanel {
     const cell = document.createElement("th");
     cell.className = `${className} sortable`;
     cell.title = labelFromKey(sortKey);
+    cell.dataset.columnKey = sortKey;
 
     const text = document.createElement("span");
     text.textContent = label;
@@ -482,7 +589,64 @@ export class ObjectBrowserPanel {
     }
     cell.append(indicator);
 
+    if (className === "col-data") {
+      cell.draggable = true;
+      cell.classList.add("column-draggable");
+
+      cell.addEventListener("dragstart", (event) => {
+        this.columnDragKey = sortKey;
+        this.columnDragMoved = false;
+        cell.classList.add("is-dragging");
+        if (event.dataTransfer) {
+          event.dataTransfer.effectAllowed = "move";
+          event.dataTransfer.setData("text/plain", sortKey);
+        }
+      });
+
+      cell.addEventListener("dragend", () => {
+        cell.classList.remove("is-dragging");
+        this.columnDragKey = null;
+        for (const header of this.headerRowEl.querySelectorAll<HTMLElement>("th.is-drop-target")) {
+          header.classList.remove("is-drop-target");
+        }
+      });
+
+      cell.addEventListener("dragover", (event) => {
+        if (!this.columnDragKey || this.columnDragKey === sortKey) {
+          return;
+        }
+
+        event.preventDefault();
+        if (event.dataTransfer) {
+          event.dataTransfer.dropEffect = "move";
+        }
+        cell.classList.add("is-drop-target");
+      });
+
+      cell.addEventListener("dragleave", () => {
+        cell.classList.remove("is-drop-target");
+      });
+
+      cell.addEventListener("drop", (event) => {
+        event.preventDefault();
+        cell.classList.remove("is-drop-target");
+
+        const sourceKey = this.columnDragKey ?? event.dataTransfer?.getData("text/plain");
+        if (!sourceKey || sourceKey === sortKey) {
+          return;
+        }
+
+        this.columnDragMoved = true;
+        this.reorderColumn(sourceKey, sortKey);
+      });
+    }
+
     cell.addEventListener("click", () => {
+      if (this.columnDragMoved) {
+        this.columnDragMoved = false;
+        return;
+      }
+
       if (this.state.sortField === sortKey) {
         this.state.sortDirection = this.state.sortDirection === "asc" ? "desc" : "asc";
       } else {
@@ -494,6 +658,22 @@ export class ObjectBrowserPanel {
     });
 
     return cell;
+  }
+
+  private reorderColumn(sourceKey: string, targetKey: string): void {
+    const columns = [...this.state.columns];
+    const sourceIndex = columns.indexOf(sourceKey);
+    const targetIndex = columns.indexOf(targetKey);
+
+    if (sourceIndex === -1 || targetIndex === -1 || sourceIndex === targetIndex) {
+      return;
+    }
+
+    columns.splice(sourceIndex, 1);
+    columns.splice(targetIndex, 0, sourceKey);
+    this.state.columns = columns;
+    this.lastHeaderKey = "";
+    void this.render();
   }
 
   private createRow(node: TreeNode): HTMLTableRowElement {
@@ -751,6 +931,35 @@ export class ObjectBrowserPanel {
 
     list.replaceChildren();
     const normalized = this.columnsSearch.trim().toLowerCase();
+
+    if (!normalized && this.state.columns.length > 0) {
+      const orderTitle = document.createElement("div");
+      orderTitle.className = "popover-section-title";
+      orderTitle.textContent = "Column order";
+      list.append(orderTitle);
+
+      const orderHint = document.createElement("div");
+      orderHint.className = "popover-hint";
+      orderHint.textContent = "Drag to reorder, or drag column headers in the table.";
+      list.append(orderHint);
+
+      const orderList = document.createElement("div");
+      orderList.className = "column-order-list";
+      for (const key of this.state.columns) {
+        orderList.append(this.createColumnOrderItem(key));
+      }
+      list.append(orderList);
+
+      const divider = document.createElement("div");
+      divider.className = "popover-divider";
+      list.append(divider);
+
+      const availableTitle = document.createElement("div");
+      availableTitle.className = "popover-section-title";
+      availableTitle.textContent = "Available columns";
+      list.append(availableTitle);
+    }
+
     const catalog = this.service.getCatalog().filter((info) => info.key !== NAME_KEY);
     const matches = catalog.filter((info) => {
       if (!normalized) {
@@ -795,6 +1004,7 @@ export class ObjectBrowserPanel {
 
         this.lastHeaderKey = "";
         void this.render();
+        this.renderColumnsList();
       });
 
       const text = document.createElement("span");
@@ -803,6 +1013,75 @@ export class ObjectBrowserPanel {
       row.append(checkbox, text);
       list.append(row);
     }
+  }
+
+  private createColumnOrderItem(key: string): HTMLDivElement {
+    const item = document.createElement("div");
+    item.className = "column-order-item";
+    item.draggable = true;
+    item.dataset.columnKey = key;
+
+    const grip = document.createElement("span");
+    grip.className = "column-order-grip";
+    grip.textContent = "⋮⋮";
+    grip.setAttribute("aria-hidden", "true");
+
+    const label = document.createElement("span");
+    label.className = "column-order-label";
+    label.textContent = shortLabelFromKey(key);
+    label.title = labelFromKey(key);
+
+    item.append(grip, label);
+
+    item.addEventListener("dragstart", (event) => {
+      this.columnDragKey = key;
+      item.classList.add("is-dragging");
+      if (event.dataTransfer) {
+        event.dataTransfer.effectAllowed = "move";
+        event.dataTransfer.setData("text/plain", key);
+      }
+    });
+
+    item.addEventListener("dragend", () => {
+      item.classList.remove("is-dragging");
+      this.columnDragKey = null;
+      for (const target of this.columnsPopoverEl.querySelectorAll<HTMLElement>(
+        ".column-order-item.is-drop-target",
+      )) {
+        target.classList.remove("is-drop-target");
+      }
+    });
+
+    item.addEventListener("dragover", (event) => {
+      if (!this.columnDragKey || this.columnDragKey === key) {
+        return;
+      }
+
+      event.preventDefault();
+      if (event.dataTransfer) {
+        event.dataTransfer.dropEffect = "move";
+      }
+      item.classList.add("is-drop-target");
+    });
+
+    item.addEventListener("dragleave", () => {
+      item.classList.remove("is-drop-target");
+    });
+
+    item.addEventListener("drop", (event) => {
+      event.preventDefault();
+      item.classList.remove("is-drop-target");
+
+      const sourceKey = this.columnDragKey ?? event.dataTransfer?.getData("text/plain");
+      if (!sourceKey || sourceKey === key) {
+        return;
+      }
+
+      this.reorderColumn(sourceKey, key);
+      this.renderColumnsList();
+    });
+
+    return item;
   }
 
   private ensureValidGroupBy(): void {
@@ -828,9 +1107,13 @@ export class ObjectBrowserPanel {
   }
 
   private applySelectionHighlight(): void {
-    for (const row of this.rowsEl.querySelectorAll<HTMLElement>("tr[data-object-key]")) {
-      const key = row.dataset.objectKey ?? "";
-      row.classList.toggle("is-selected", this.selectedObjectKeys.has(key));
+    for (const row of this.rowsEl.querySelectorAll<HTMLElement>("tr.tree-row")) {
+      const nodeId = row.dataset.nodeId ?? "";
+      const objectKey = row.dataset.objectKey ?? "";
+      const selected =
+        this.selectedNodeIds.has(nodeId) ||
+        (objectKey.length > 0 && this.selectedObjectKeys.has(objectKey));
+      row.classList.toggle("is-selected", selected);
     }
   }
 

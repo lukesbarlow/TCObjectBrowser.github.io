@@ -3,7 +3,7 @@ import type {
   ModelObjects,
   ObjectProperties,
 } from "trimble-connect-workspace-api";
-import { getWorkspaceApi } from "../api/connect";
+import { getWorkspaceApi, type WorkspaceApi } from "../api/connect";
 import { runWithConcurrency } from "../utils/concurrency";
 import {
   BUILTIN_KEY_INFOS,
@@ -23,7 +23,8 @@ import {
 } from "../types";
 
 const PROPERTY_BATCH_SIZE = 250;
-const PROPERTY_BATCH_CONCURRENCY = 5;
+const PROPERTY_BATCH_CONCURRENCY = 8;
+const MODEL_PROPERTY_CONCURRENCY = 3;
 const ASSEMBLY_CHILDREN_CONCURRENCY = 8;
 /**
  * `HierarchyType.ElementAssembly`. The enum is type-only in the workspace API
@@ -55,12 +56,35 @@ export class ObjectBrowserService {
   private assemblyCache = new Map<string, Map<number, AssemblyInfo> | null>();
   private assemblySelection = false;
   private loading = false;
+  private enrichingProperties = false;
+  private propertyEnrichmentPromise: Promise<void> | null = null;
+  private onPropertiesProgress: (() => void) | null = null;
+  private refreshGeneration = 0;
   private assemblyIndexPromise: Promise<void> | null = null;
   private groupCache: { key: string; nodes: TreeNode[] } | null = null;
   private readonly childrenCache = new Map<string, TreeNode[]>();
 
   isLoading(): boolean {
     return this.loading;
+  }
+
+  isEnrichingProperties(): boolean {
+    return this.enrichingProperties;
+  }
+
+  async waitForPropertyEnrichment(): Promise<void> {
+    if (this.propertyEnrichmentPromise) {
+      await this.propertyEnrichmentPromise;
+    }
+  }
+
+  /**
+   * Registers a callback fired each time a model's properties finish loading in
+   * the background, so the UI can fill in property data progressively instead of
+   * waiting for every model to complete.
+   */
+  setPropertiesProgressListener(listener: (() => void) | null): void {
+    this.onPropertiesProgress = listener;
   }
 
   isAssemblySelection(): boolean {
@@ -77,27 +101,31 @@ export class ObjectBrowserService {
 
   async refresh(): Promise<number> {
     this.loading = true;
+    const generation = ++this.refreshGeneration;
 
     try {
       const api = await getWorkspaceApi();
-      this.assemblySelection = await this.readAssemblySelection();
+      const [assemblySelection, modelObjects, hiddenObjects] = await Promise.all([
+        this.readAssemblySelection(api),
+        api.viewer.getObjects(),
+        api.viewer.getObjects(undefined, { visible: false }),
+      ]);
+
+      this.assemblySelection = assemblySelection;
       this.invalidateCaches();
 
-      const modelObjects = await api.viewer.getObjects();
-      const hiddenObjectsPromise = api.viewer.getObjects(undefined, { visible: false });
-
-      const flatByModel = await Promise.all(
-        modelObjects.map((model) => this.buildFlatObjectsForModel(model)),
+      this.flatObjects = modelObjects.flatMap((model) =>
+        model.objects.map((object) => this.toFlatObject(model.modelId, object)),
       );
-      this.flatObjects = flatByModel.flat();
       this.rebuildObjectByKey();
-
-      await this.applyHiddenObjects(await hiddenObjectsPromise);
+      await this.applyHiddenObjects(hiddenObjects);
       this.rebuildCatalog();
 
       if (this.assemblySelection) {
         void this.ensureAssemblyIndex();
       }
+
+      void this.startPropertyEnrichment(modelObjects, generation);
 
       return this.flatObjects.length;
     } finally {
@@ -349,13 +377,79 @@ export class ObjectBrowserService {
     }
   }
 
-  private async readAssemblySelection(): Promise<boolean> {
+  private async readAssemblySelection(api: WorkspaceApi): Promise<boolean> {
     try {
-      const api = await getWorkspaceApi();
       const settings = await api.viewer.getSettings();
       return Boolean(settings?.assemblySelection);
     } catch {
       return false;
+    }
+  }
+
+  private startPropertyEnrichment(
+    models: ModelObjects[],
+    generation: number,
+  ): Promise<void> {
+    const pending = this.enrichModelProperties(models, generation);
+    this.propertyEnrichmentPromise = pending;
+    return pending;
+  }
+
+  private async enrichModelProperties(
+    models: ModelObjects[],
+    generation: number,
+  ): Promise<void> {
+    this.enrichingProperties = models.length > 0;
+
+    try {
+      if (models.length === 0) {
+        return;
+      }
+
+      await runWithConcurrency(models, MODEL_PROPERTY_CONCURRENCY, async (model) => {
+        if (generation !== this.refreshGeneration) {
+          return;
+        }
+
+        const runtimeIds = model.objects.map((object) => object.id);
+        const propertiesById = await this.loadProperties(model.modelId, runtimeIds);
+
+        if (generation !== this.refreshGeneration) {
+          return;
+        }
+
+        for (const object of model.objects) {
+          const properties = propertiesById.get(object.id);
+          if (!properties) {
+            continue;
+          }
+
+          const flat = this.objectByKey.get(objectKey(model.modelId, object.id));
+          if (flat) {
+            this.mergePropertiesIntoFlatObject(flat, properties);
+          }
+        }
+
+        if (generation !== this.refreshGeneration) {
+          return;
+        }
+
+        this.rebuildCatalog();
+        this.groupCache = null;
+        this.onPropertiesProgress?.();
+      });
+
+      if (generation !== this.refreshGeneration) {
+        return;
+      }
+
+      this.rebuildCatalog();
+      this.groupCache = null;
+    } finally {
+      if (generation === this.refreshGeneration) {
+        this.enrichingProperties = false;
+        this.propertyEnrichmentPromise = null;
+      }
     }
   }
 
@@ -542,14 +636,19 @@ export class ObjectBrowserService {
     }));
   }
 
-  private async buildFlatObjectsForModel(model: ModelObjects): Promise<FlatObject[]> {
-    const runtimeIds = model.objects.map((object) => object.id);
-    const propertiesById = await this.loadProperties(model.modelId, runtimeIds);
-
-    return model.objects.map((object) => {
-      const properties = propertiesById.get(object.id) ?? object;
-      return this.toFlatObject(model.modelId, properties);
-    });
+  private mergePropertiesIntoFlatObject(
+    flat: FlatObject,
+    properties: ObjectProperties,
+  ): void {
+    const values = extractValues(properties);
+    flat.name = getObjectName(properties);
+    flat.className = getObjectClass(properties);
+    flat.objectType = getObjectType(properties);
+    flat.values = values;
+    flat.searchText = buildSearchText(properties, values);
+    if (properties.color !== undefined) {
+      flat.color = properties.color;
+    }
   }
 
   private async loadProperties(
